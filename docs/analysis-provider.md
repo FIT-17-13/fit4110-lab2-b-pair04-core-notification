@@ -1,68 +1,61 @@
-# Phân tích yêu cầu — vai Provider
+# Phân tích yêu cầu — vai Producer (Core Business)
 
-- Cặp đàm phán:
-- Product: A / B
-- Provider service:
-- Consumer service:
-- Người viết:
-- Ngày:
+- Cặp đàm phán: Pair 04 — Core Business → Notification
+- Product: B
+- Producer service: Core Business (Nhóm 12 — B6)
+- Consumer service: Notification (B7)
+- Người viết: Nhóm 12
+- Ngày: 2026-05-19
 
 ---
 
-## 1. Resource chính
+## 1. Event chính Producer sẽ phát
 
-| Resource | Mô tả | Thuộc tính bắt buộc | Thuộc tính tùy chọn |
+| Event | Mô tả | Trigger | Tần suất |
 |---|---|---|---|
-| `<Resource 1>` |  |  |  |
-| `<Resource 2>` |  |  |  |
+| `alert.created` | Cảnh báo mới được tạo | Sensor vượt ngưỡng, truy cập trái phép, lỗi hệ thống | Trung bình (vài lần/giờ, burst khi sự cố) |
+| `alert.escalated` | Cảnh báo chưa xử lý bị leo thang | Alert severity >= HIGH chưa acknowledge sau 15 phút | Thấp |
+| `alert.resolved` | Cảnh báo đã được đóng | Admin hoặc hệ thống tự động resolve | Tương đương alert.created |
 
 ---
 
-## 2. Action/API dự kiến
+## 2. Payload field dự kiến
 
-| Method | Path | Mục đích | Consumer gọi khi nào? |
+| Field | Kiểu | Bắt buộc | Mô tả |
 |---|---|---|---|
-| POST | `/...` |  |  |
-| GET | `/.../{id}` |  |  |
+| `alertId` | string | ✅ | Mã cảnh báo, dùng làm correlationId |
+| `alertType` | string (enum) | ✅ (created) | SENSOR_THRESHOLD_EXCEEDED, UNAUTHORIZED_ACCESS, UNKNOWN_PERSON, SYSTEM_ERROR |
+| `severity` | string (enum) | ✅ | LOW, MEDIUM, HIGH, CRITICAL |
+| `message` | string | ✅ (created) | Nội dung cảnh báo để hiển thị cho người nhận |
+| `locationId` | string | Tùy chọn | Vị trí xảy ra sự kiện |
+| `resolvedBy` | string | ✅ (resolved) | Người/hệ thống đóng alert |
+| `durationSeconds` | integer | ✅ (resolved) | Thời gian xử lý |
+| `resolutionNote` | string | Tùy chọn | Ghi chú khi đóng |
+| `previousSeverity` | string | ✅ (escalated) | Severity trước khi leo thang |
+| `escalatedSeverity` | string | ✅ (escalated) | Severity sau leo thang |
 
 ---
 
-## 3. Error case
+## 3. Giả định bổ sung
 
-Tối thiểu 5 case.
-
-| Status | Tình huống | Response body dự kiến |
-|---:|---|---|
-| 400 | Payload sai định dạng | `Problem` |
-| 401 | Thiếu Bearer token | `Problem` |
-| 403 | Token hợp lệ nhưng không có quyền | `Problem` |
-| 404 | Resource không tồn tại | `Problem` |
-| 409 | Xung đột nghiệp vụ | `Problem` |
-| 422 | Dữ liệu đúng JSON nhưng vi phạm nghiệp vụ | `Problem` |
+- Giả định 1: Core Business chỉ phát event cho alert có severity >= MEDIUM. Alert LOW chỉ ghi log nội bộ, không cần thông báo.
+- Giả định 2: Core Business không quan tâm Notification gửi qua kênh nào. Trách nhiệm chọn kênh thuộc về Notification service.
+- Giả định 3: Mỗi event chứa đủ thông tin để Notification compose thông báo hoàn chỉnh (self-contained), không cần callback lại Core.
 
 ---
 
-## 4. Giả định bổ sung
+## 4. Câu hỏi cho Consumer
 
-Ghi rõ những điểm user story chưa nói nhưng Provider cần giả định.
-
-- Giả định 1:
-- Giả định 2:
-- Giả định 3:
+1. Notification có cần Core Business gửi danh sách người nhận, hay tự quản lý bảng routing?
+2. Khi gửi thông báo thất bại (VD: Telegram API lỗi), Notification có cần báo lại cho Core không?
+3. Notification có giới hạn rate limit cho mỗi kênh không? (VD: tối đa 30 tin Telegram/phút)
 
 ---
 
-## 5. Câu hỏi cho Consumer
-
-1. 
-2. 
-3. 
-
----
-
-## 6. Rủi ro tích hợp
+## 5. Rủi ro tích hợp
 
 | Rủi ro | Tác động | Đề xuất xử lý |
 |---|---|---|
-| Tên field không thống nhất | Consumer parse lỗi | Chốt naming trong `openapi.yaml` |
-| Payload lớn | Timeout/mock lỗi | Thống nhất content-type và size limit |
+| Alert flood (mất điện campus) | Spam inbox người nhận | Notification implement digest/batch 30 giây |
+| Notification down kéo dài | Thông báo bị mất (hết retention) | Monitoring consumer lag, alert khi lag > 1 giờ |
+| Message quá lớn (> 64KB) | Queue reject | Core Business giới hạn `message` tối đa 500 ký tự |
